@@ -22,3 +22,9 @@ endif
 ifeq ($(subdir),elf)
 sysdep_routines += dl-vdso
 endif
+
+# Always build relocatable objects with <sys/cet.h> which is unused if
+# IBT and SHSTCK are disabled.
+CPPFLAGS-.o += -include $(..)sysdeps/unix/sysv/linux/x86/sys/cet.h
+CPPFLAGS-.os += -include $(..)sysdeps/unix/sysv/linux/x86/sys/cet.h
+CPPFLAGS-.op += -include $(..)sysdeps/unix/sysv/linux/x86/sys/cet.h
