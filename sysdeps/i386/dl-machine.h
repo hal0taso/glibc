@@ -66,6 +66,7 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
 {
   Elf32_Addr *got;
   extern void _dl_runtime_resolve (Elf32_Word) attribute_hidden;
+  extern void _dl_runtime_resolve_shstk (Elf32_Word) attribute_hidden;
   extern void _dl_runtime_profile (Elf32_Word) attribute_hidden;
 
   if (l->l_info[DT_JMPREL] && lazy)
@@ -104,7 +105,9 @@ elf_machine_runtime_setup (struct link_map *l, int lazy, int profile)
       else
 	/* This function will get called to fix up the GOT entry indicated by
 	   the offset on the stack, and then jump to the resolved address.  */
-	got[2] = (Elf32_Addr) &_dl_runtime_resolve;
+	got[2] = (HAS_ARCH_FEATURE (SHSTK_Usable)
+		  ? (Elf32_Addr) &_dl_runtime_resolve_shstk
+		  : (Elf32_Addr) &_dl_runtime_resolve);
     }
 
   return lazy;
