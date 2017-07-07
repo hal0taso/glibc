@@ -86,6 +86,29 @@ except:
 
     subprocess.run = _run
 
+def total_ram():
+    """Retrieve the total amount of physical RAM available on this computer."""
+
+    # This can't be done cross-platform using the Python standard library.
+    # If the add-on 'psutil' module is available, use it.
+    try:
+        import psutil
+        # Despite the name, virtual_memory() counts only physical RAM, not swap.
+        return psutil.virtual_memory().total
+
+    except ImportError:
+        pass
+
+    # This works on Linux, but (reportedly) not on all other Unixes.
+    try:
+        return \
+            os.sysconf('SC_PAGESIZE') * os.sysconf('SC_PHYS_PAGES')
+
+    except:
+        pass
+
+    # We don't know.  Return a very large number.
+    return sys.maxsize
 
 class Context(object):
     """The global state associated with builds in a given directory."""
@@ -133,6 +156,45 @@ class Context(object):
         """Re-execute this script with the same arguments."""
         sys.stdout.flush()
         os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    def set_memory_limits(self):
+        """Impose a memory-consumption limit on this process, and therefore
+           all of the subprocesses it creates.  The limit used is
+           either physical RAM divided by the number of jobs to be run
+           in parallel, or one gigabyte, whichever is smaller.
+        """
+        try:
+            import resource
+        except ImportError:
+            return
+
+        physical_ram = total_ram()
+        memory_limit = min(physical_ram / self.parallelism,
+                           1024 * 1024 * 1024)
+
+        set_a_limit = False
+        for mem_rsrc_name in ['RLIMIT_DATA', 'RLIMIT_STACK', 'RLIMIT_RSS',
+                              'RLIMIT_VMEM', 'RLIMIT_AS']:
+            mem_rsrc = getattr(resource, mem_rsrc_name, None)
+            if mem_rsrc is not None:
+                soft, hard = resource.getrlimit(mem_rsrc)
+                if hard == resource.RLIM_INFINITY or hard > memory_limit:
+                    hard = memory_limit
+                if soft == resource.RLIM_INFINITY or soft > hard:
+                    soft = hard
+                resource.setrlimit(mem_rsrc, (soft, hard))
+                set_a_limit = True
+
+        if set_a_limit:
+            if memory_limit > 1024 * 1024 * 1024:
+                print("Per-process memory limit set to %.5g GB." %
+                      (memory_limit / (1024 * 1024 * 1024)))
+            elif memory_limit > 1024 * 1024:
+                print("Per-process memory limit set to %.5g MB." %
+                      (memory_limit / (1024 * 1024)))
+            else:
+                print("Per-process memory limit set to %.5g kB." %
+                      (memory_limit / 1024))
 
     def get_build_triplet(self):
         """Determine the build triplet with config.guess."""
@@ -465,6 +527,7 @@ class Context(object):
             old_versions = self.build_state['compilers']['build-versions']
             self.build_glibcs(configs)
         self.write_files()
+        self.set_memory_limits()
         self.do_build()
         if configs:
             # Partial build, do not update stored state.
